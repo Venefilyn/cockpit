@@ -1,0 +1,4 @@
+TEST_BIND_GLOBAL=localhost bots/vm-run  -s cockpit.socket fedora-43
+
+sudo vi /etc/pam.d/cockpit
+auth       sufficient   pam_u2f.so authfile=/etc/u2f_mappings origin=localhost appid=cockpit manual

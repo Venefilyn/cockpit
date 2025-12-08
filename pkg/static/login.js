@@ -738,7 +738,20 @@ function debug(...args) {
         hideToggle("#conversation-group", form != "conversation");
         hideToggle("#hostkey-group", form != "hostkey");
 
-        id("login-button-text").textContent = (form == "hostkey") ? _("Accept key and log in") : _("Log in");
+        let loginText = ""
+        switch (form) {
+            case "hostkey":
+                loginText = _("Accept key and log in")
+                break;
+            case "passkey":
+                loginText = _("Log in with passkey")
+                break;
+            default:
+                loginText = _("Log in")
+                break;
+        }
+
+        id("login-button-text").textContent = loginText;
         if (form != "login")
             id("login-password-input").value = '';
 
@@ -883,9 +896,75 @@ function debug(...args) {
         }
     }
 
+
+    function isPasskeySupported() {
+        return !(window.PublicKeyCredential === undefined ||
+            typeof window.PublicKeyCredential !== "function" ||
+            typeof window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable !== "function")
+    }
+
+    function do_passkey_verification(data) {
+        if (!window.isSecureContext) {
+            login_failure(_("This web page was not loaded in a secure context (https). Please try loading the page again using https or make sure you are using a browser with secure context support"))
+        }
+        if (!isPasskeySupported) {
+            login_failure(_("Browser or client does not support necessary Web Authentication"))
+        }
+        const match = /.*\n(\S+)\n(\S+)\n.*/.exec(data["message"]);
+        if (!match) {
+            // login_failure(null, null, "passkey");
+            return;
+        }
+        const challenge = match[1];
+        const rp = match[1];
+
+        if (!challenge || !rp) {
+            return;
+        }
+
+        show("#passkey-group");
+
+        login_failure("");
+        // const id = Uint8Array.fromBase64(passkey.id, {alphabet: "base64url"}).buffer
+
+        async function call_converse() {
+            id("login-button").removeEventListener("click", call_converse);
+            login_failure(null, null, "passkey");
+            const publicKey = {
+                challenge: new TextEncoder().encode(challenge),
+                rpId: rp,
+                allowCredentials: [
+                    {
+                        type: "public-key",
+                        id: Uint8Array.fromBase64("eYk5FcyMo-vRCA7thKndJtlteSay5CWLF0iJ8FyEozY", {alphabet: "base64url"}).buffer
+                    }
+                ],
+                userVerification: "required"
+            };
+            const credentials = await navigator.credentials.get({ publicKey });
+            converse(data.id, credentials);
+            if (key.endsWith(" login-data")) {
+                login_data_host = key_host;
+                debug("call_converse(): got placeholder host keyfor", login_data_host, ", deferring db update");
+                converse(data.id, data.default);
+            } else {
+                console.error("login: got unexpected host key prompt, expecting login-data placeholder:", key);
+                fatal(_("Internal protocol error"));
+            }
+        }
+
+        show_form("passkey");
+        show("#get-out-link");
+
+        id("login-button").addEventListener("click", call_converse);
+    }
+
     function show_converse(prompt_data) {
         if (prompt_data["host-key"]) {
             do_hostkey_verification(prompt_data);
+            return;
+        } else if (prompt_data["message"].includes("fido2-assert")) {
+            do_passkey_verification(prompt_data);
             return;
         }
 
